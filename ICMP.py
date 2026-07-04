@@ -18,9 +18,11 @@ def checksum(string):
         csum = csum + thisVal
         csum = csum & 0xffffffff
         count = count + 2
+
     if countTo < len(string):
         csum = csum + ord(string[len(string) - 1])
         csum = csum & 0xffffffff
+
     csum = (csum >> 16) + (csum & 0xffff)
     csum = csum + (csum >> 16)
     answer = ~csum
@@ -35,16 +37,25 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
         startedSelect = time.time()
         whatReady = select.select([mySocket], [], [], timeLeft)
         howLongInSelect = (time.time() - startedSelect)
+
         if whatReady[0] == []: # Timeout
-        return "Request timed out."
+            return "Request timed out."
         timeReceived = time.time()
         recPacket, addr = mySocket.recvfrom(1024)
         #Fill in start
         
         #Fetch the ICMP header from the IP packet
-        
+        icmpHeader = recPacket[20:28]
+
+        icmptype, code, chksum, packetID, sequence = struct.unpack("bbHHh", icmpHeader)
+
+        if packetID == ID and icmptype == 0:
+            bytesInDouble = struct.calcsize("d")
+            timeSent = struct.unpack("d", recPacket[28:28 + bytesInDouble])[0]
+
+            rtt = (timeReceived - timeout) * 1000
+            return f"Reply from {addr[0]}: seq:{sequence} time={rtt:.2f} ms"
         #Fill in end
-        
         
         timeLeft = timeLeft - howLongInSelect
         if timeLeft <= 0:
@@ -58,6 +69,7 @@ def sendOnePing(mySocket, destAddr, ID):
     # struct -- Interpret strings as packed binary data
     header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, myChecksum, ID, 1)
     data = struct.pack("d", time.time())
+    
     # Calculate the checksum on the data and the dummy header.
     myChecksum = checksum(str(header + data))
 
@@ -83,7 +95,11 @@ def doOnePing(destAddr, timeout):
     #Fill in start
     
     #create socket
-    
+    try:
+        mySocket = socket(AF_INET, SOCK_RAW, icmp)
+    except PermissionError:
+        print("Error: Administrator priviledges required for action.")
+        sys.exit()
     #Fill in end
    
     myID = os.getpid() & 0xFFFF # Return the current process i
@@ -91,10 +107,12 @@ def doOnePing(destAddr, timeout):
     #Fill in start
     
     #send a single ping using the socket, dst addr and ID
+    sendOnePing(mySocket, destAddr, myID)
     #add delay using timeout
+    delay = receiveOnePing(mySocket, myID, timeout, destAddr)
     #close socket
-   
-   #Fill in end
+    mySocket.close()
+    #Fill in end
     
 
     return delay
